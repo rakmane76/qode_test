@@ -15,13 +15,13 @@
 namespace mdfh {
 
 struct SymbolState {
-    uint16_t symbol_id;
+    uint16_t symbol_id = 0;
     std::string symbol_name;
-    double current_price;
-    double volatility;      // σ
-    double drift;           // μ
-    uint32_t seq_num;
-    uint32_t ticks_since_price_update;  // Counter for price updates
+    double current_price = 0.0;
+    double volatility = 0.0;      // σ
+    double drift = 0.0;           // μ
+    uint32_t seq_num = 0;
+    uint32_t ticks_since_price_update = 0;  // Counter for price updates
 };
 
 class ExchangeSimulator {

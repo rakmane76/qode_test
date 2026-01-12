@@ -14,6 +14,8 @@ if [ ! -f "build/release/exchange_server" ] || [ ! -f "build/release/feed_client
     echo ""
 fi
 
+mkdir -p ./logs
+
 # Start server in background
 echo "Starting server on port 9876..."
 ./scripts/run_server.sh > logs/server.log 2>&1 &
