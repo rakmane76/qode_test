@@ -5,6 +5,7 @@
 #include <vector>
 #include <mutex>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace mdfh {
 
@@ -42,9 +43,18 @@ public:
     // Get total number of clients
     size_t get_client_count() const;
     
+    // Subscription management
+    void subscribe(int fd, const std::unordered_set<uint16_t>& symbol_ids);
+    void unsubscribe(int fd, uint16_t symbol_id);
+    void clear_subscriptions(int fd);
+    bool is_subscribed(int fd, uint16_t symbol_id) const;
+    size_t get_subscription_count(int fd) const;
+    std::vector<int> get_subscribed_clients(uint16_t symbol_id) const;
+    
 private:
     mutable std::mutex mutex_;
     std::unordered_map<int, ClientInfo> clients_;
+    std::unordered_map<int, std::unordered_set<uint16_t>> subscriptions_;
 };
 
 } // namespace mdfh

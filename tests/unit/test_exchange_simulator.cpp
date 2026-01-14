@@ -1115,6 +1115,86 @@ TEST_F(ExchangeSimulatorTest, HandleClientDisconnect) {
     }
 }
 
+// Test: ClientManager integration - basic functionality
+TEST_F(ExchangeSimulatorTest, ClientManagerIntegration) {
+    try {
+        std::string symbols_file = config_dir_ + "/symbols.csv";
+        create_valid_symbol_file(symbols_file, 5);
+        std::string config_path = create_test_config(symbols_file, 15020, 5, 0);
+        
+        ExchangeSimulator sim(15020, 5, config_path);
+        
+        // Verify ClientManager is working by checking client count
+        EXPECT_EQ(sim.get_num_connected_clients(), 0) << "Initially no clients";
+        
+        // Start the simulator
+        sim.start();
+        
+        std::thread event_thread([&sim]() {
+            sim.run();
+        });
+        
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        
+        // Create a simple client connection
+        int sock = socket(AF_INET, SOCK_STREAM, 0);
+        ASSERT_GE(sock, 0);
+        
+        struct sockaddr_in addr{};
+        addr.sin_family = AF_INET;
+        addr.sin_port = htons(15020);
+        inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+        
+        int result = connect(sock, (struct sockaddr*)&addr, sizeof(addr));
+        ASSERT_GE(result, 0) << "Client should connect successfully";
+        
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        
+        // Verify client is tracked by ClientManager
+        EXPECT_EQ(sim.get_num_connected_clients(), 1) << "One client connected";
+        
+        // Send subscription message: command(1) + count(2) + symbol_ids(2*n)
+        std::vector<uint8_t> sub_msg;
+        sub_msg.push_back(0xFF); // Subscribe command
+        sub_msg.push_back(2);    // count low byte (2 symbols)
+        sub_msg.push_back(0);    // count high byte
+        sub_msg.push_back(0);    // symbol 0 low byte
+        sub_msg.push_back(0);    // symbol 0 high byte
+        sub_msg.push_back(1);    // symbol 1 low byte
+        sub_msg.push_back(0);    // symbol 1 high byte
+        
+        ssize_t sent = send(sock, sub_msg.data(), sub_msg.size(), 0);
+        EXPECT_EQ(sent, static_cast<ssize_t>(sub_msg.size()));
+        
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        
+        // Verify subscription was recorded
+        auto client_fds = sim.get_client_fds();
+        ASSERT_EQ(client_fds.size(), 1);
+        EXPECT_TRUE(sim.is_client_subscribed(client_fds[0], 0));
+        EXPECT_TRUE(sim.is_client_subscribed(client_fds[0], 1));
+        EXPECT_FALSE(sim.is_client_subscribed(client_fds[0], 2));
+        EXPECT_EQ(sim.get_client_subscription_count(client_fds[0]), 2);
+        
+        close(sock);
+        std::this_thread::sleep_for(std::chrono::milliseconds(100));
+        
+        // Verify client is removed after disconnect
+        EXPECT_EQ(sim.get_num_connected_clients(), 0) << "Client disconnected";
+        
+        sim.stop();
+        
+        if (event_thread.joinable()) {
+            event_thread.join();
+        }
+        
+        SUCCEED() << "ClientManager integration verified";
+        
+    } catch (const std::exception& e) {
+        FAIL() << "Exception thrown: " << e.what();
+    }
+}
+
 } // namespace mdfh
 
 // Main function for running tests

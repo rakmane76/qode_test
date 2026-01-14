@@ -1,6 +1,5 @@
 #include "server/exchange_simulator.h"
 #include "server/tick_generator.h"
-#include "server/client_manager.h"
 #include "common/protocol.h"
 #include "common/config_parser.h"
 #include <iostream>
@@ -15,7 +14,6 @@
 #include <arpa/inet.h>
 #include <chrono>
 #include <random>
-#include <algorithm>
 
 namespace mdfh {
 
@@ -243,7 +241,7 @@ void ExchangeSimulator::handle_new_connection() {
     ev.data.fd = client_fd;
     epoll_ctl(epoll_fd_, EPOLL_CTL_ADD, client_fd, &ev);
     
-    client_fds_.push_back(client_fd);
+    client_manager_.add_client(client_fd);
     
     std::cout << "New client connected: " << client_fd << std::endl;
 }
@@ -252,16 +250,8 @@ void ExchangeSimulator::handle_client_disconnect(int client_fd) {
     epoll_ctl(epoll_fd_, EPOLL_CTL_DEL, client_fd, nullptr);
     close(client_fd);
     
-    auto it = std::find(client_fds_.begin(), client_fds_.end(), client_fd);
-    if (it != client_fds_.end()) {
-        client_fds_.erase(it);
-    }
-    
-    // Remove client subscriptions
-    {
-        std::scoped_lock lock(subscriptions_mutex_);
-        client_subscriptions_.erase(client_fd);
-    }
+    client_manager_.remove_client(client_fd);
+    client_manager_.clear_subscriptions(client_fd);
     
     std::cout << "Client disconnected: " << client_fd << std::endl;
 }
@@ -354,28 +344,20 @@ void ExchangeSimulator::generate_tick(uint16_t symbol_id) {
 }
 
 void ExchangeSimulator::broadcast_message(const void* data, size_t len, uint16_t symbol_id) {
-    auto clients = client_fds_;
+    std::vector<int> clients;
+    
+    // Get clients subscribed to this symbol
+    if (symbol_id != 0xFFFF) {
+        clients = client_manager_.get_subscribed_clients(symbol_id);
+    } else {
+        clients = client_manager_.get_all_clients();
+    }
     
     static std::random_device rd;
     static std::mt19937 gen(rd());
     static std::uniform_int_distribution<> dis(1, 100);
     
     for (int fd : clients) {
-        // Subscription-only mode: clients must subscribe to receive messages
-        if (symbol_id != 0xFFFF) {
-            std::scoped_lock lock(subscriptions_mutex_);
-            auto it = client_subscriptions_.find(fd);
-            
-            // Client has no subscriptions or empty subscription list - skip
-            if (it == client_subscriptions_.end() || it->second.empty()) {
-                continue;
-            }
-            
-            // Client has subscriptions - check if subscribed to this specific symbol
-            if (it->second.find(symbol_id) == it->second.end()) {
-                continue; // Not subscribed to this symbol, skip
-            }
-        }
         
         const uint8_t* send_ptr = static_cast<const uint8_t*>(data);
         
@@ -393,8 +375,10 @@ void ExchangeSimulator::broadcast_message(const void* data, size_t len, uint16_t
         ssize_t sent = send(fd, data, len, MSG_NOSIGNAL | MSG_DONTWAIT);
         
         if (sent < 0) {
+            client_manager_.update_stats(fd, len, false);
             if (errno == EAGAIN || errno == EWOULDBLOCK) {
                 // Send buffer full - slow consumer detected
+                client_manager_.mark_slow_client(fd);
                 std::cerr << "Slow consumer detected on fd " << fd << std::endl;
                 // Skip this client to avoid blocking others
                 continue;
@@ -402,6 +386,8 @@ void ExchangeSimulator::broadcast_message(const void* data, size_t len, uint16_t
                 // Client disconnected
                 handle_client_disconnect(fd);
             }
+        } else {
+            client_manager_.update_stats(fd, len, true);
         }
     }
 }
@@ -470,10 +456,11 @@ void ExchangeSimulator::stop() {
         tick_thread_.join();
     }
     
-    for (int fd : client_fds_) {
+    auto clients = client_manager_.get_all_clients();
+    for (int fd : clients) {
         close(fd);
+        client_manager_.remove_client(fd);
     }
-    client_fds_.clear();
     
     if (epoll_fd_ >= 0) {
         close(epoll_fd_);
@@ -545,29 +532,16 @@ void ExchangeSimulator::handle_subscription_message(int client_fd, const uint8_t
               << " symbols" << std::endl;
     
     // Update client subscriptions
-    {
-        std::scoped_lock lock(subscriptions_mutex_);
-        client_subscriptions_[client_fd] = std::move(symbol_ids);
-    }
+    client_manager_.subscribe(client_fd, symbol_ids);
 }
 
 #ifdef TESTING
 bool ExchangeSimulator::is_client_subscribed(int client_fd, uint16_t symbol_id) const {
-    std::scoped_lock lock(subscriptions_mutex_);
-    auto it = client_subscriptions_.find(client_fd);
-    if (it == client_subscriptions_.end()) {
-        return false;
-    }
-    return it->second.find(symbol_id) != it->second.end();
+    return client_manager_.is_subscribed(client_fd, symbol_id);
 }
 
 size_t ExchangeSimulator::get_client_subscription_count(int client_fd) const {
-    std::scoped_lock lock(subscriptions_mutex_);
-    auto it = client_subscriptions_.find(client_fd);
-    if (it == client_subscriptions_.end()) {
-        return 0;
-    }
-    return it->second.size();
+    return client_manager_.get_subscription_count(client_fd);
 }
 #endif
 

@@ -8,9 +8,8 @@
 #include <mutex>
 #include <condition_variable>
 #include <string>
-#include <unordered_map>
-#include <unordered_set>
 #include <sys/epoll.h>
+#include "server/client_manager.h"
 
 namespace mdfh {
 
@@ -36,8 +35,8 @@ public:
     size_t get_num_loaded_symbols() const { return loaded_symbols_count_; }
     const SymbolState &get_symbol(size_t index) const { return loaded_symbols_.at(index); }
     // Test-only accessor for client connection management
-    size_t get_num_connected_clients() const { return client_fds_.size(); }
-    const std::vector<int>& get_client_fds() const { return client_fds_; }
+    size_t get_num_connected_clients() const { return client_manager_.get_client_count(); }
+    std::vector<int> get_client_fds() const { return client_manager_.get_all_clients(); }
     // Test-only accessor for client subscriptions
     bool is_client_subscribed(int client_fd, uint16_t symbol_id) const;
     size_t get_client_subscription_count(int client_fd) const;
@@ -103,11 +102,8 @@ private:
     std::vector<SymbolState> symbols_;  // Sparse array indexed by symbol_id
     std::vector<SymbolState> loaded_symbols_;  // Compact array for testing
     size_t loaded_symbols_count_;
-    std::vector<int> client_fds_;
     
-    // Per-client subscription tracking: client_fd -> set of symbol_ids
-    std::unordered_map<int, std::unordered_set<uint16_t>> client_subscriptions_;
-    mutable std::mutex subscriptions_mutex_;
+    ClientManager client_manager_;
     
     std::thread tick_thread_;
     

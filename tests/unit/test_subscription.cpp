@@ -221,8 +221,26 @@ TEST_F(SubscriptionTest, MultipleClientsDifferentSubscriptions) {
     // Get server-side client FDs
     ASSERT_EQ(sim.get_num_connected_clients(), 2);
     const auto& server_fds = sim.get_client_fds();
-    int server_client1_fd = server_fds[0];
-    int server_client2_fd = server_fds[1];
+    
+    // Identify which server FD corresponds to which subscription pattern
+    // Client1 subscribed to {0, 1}, Client2 subscribed to {1, 2}
+    int server_client1_fd = -1;
+    int server_client2_fd = -1;
+    
+    for (int fd : server_fds) {
+        bool has_0 = sim.is_client_subscribed(fd, 0);
+        bool has_1 = sim.is_client_subscribed(fd, 1);
+        bool has_2 = sim.is_client_subscribed(fd, 2);
+        
+        if (has_0 && has_1 && !has_2) {
+            server_client1_fd = fd;  // Subscribed to {0, 1}
+        } else if (!has_0 && has_1 && has_2) {
+            server_client2_fd = fd;  // Subscribed to {1, 2}
+        }
+    }
+    
+    ASSERT_NE(server_client1_fd, -1) << "Could not find client1 subscription pattern";
+    ASSERT_NE(server_client2_fd, -1) << "Could not find client2 subscription pattern";
     
     // Verify subscriptions
     EXPECT_TRUE(sim.is_client_subscribed(server_client1_fd, 0));
