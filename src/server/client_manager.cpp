@@ -9,7 +9,7 @@ ClientManager::~ClientManager() {
 }
 
 void ClientManager::add_client(int fd) {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::scoped_lock lock(mutex_);
     
     ClientInfo info{};
     info.fd = fd;
@@ -22,12 +22,12 @@ void ClientManager::add_client(int fd) {
 }
 
 void ClientManager::remove_client(int fd) {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::scoped_lock lock(mutex_);
     clients_.erase(fd);
 }
 
 std::vector<int> ClientManager::get_all_clients() const {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::scoped_lock lock(mutex_);
     
     std::vector<int> fds;
     fds.reserve(clients_.size());
@@ -40,7 +40,7 @@ std::vector<int> ClientManager::get_all_clients() const {
 }
 
 void ClientManager::mark_slow_client(int fd) {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::scoped_lock lock(mutex_);
     
     auto it = clients_.find(fd);
     if (it != clients_.end()) {
@@ -49,7 +49,7 @@ void ClientManager::mark_slow_client(int fd) {
 }
 
 void ClientManager::update_stats(int fd, size_t bytes_sent, bool success) {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::scoped_lock lock(mutex_);
     
     auto it = clients_.find(fd);
     if (it != clients_.end()) {
@@ -63,7 +63,7 @@ void ClientManager::update_stats(int fd, size_t bytes_sent, bool success) {
 }
 
 ClientInfo ClientManager::get_client_info(int fd) const {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::scoped_lock lock(mutex_);
     
     auto it = clients_.find(fd);
     if (it != clients_.end()) {
@@ -74,7 +74,7 @@ ClientInfo ClientManager::get_client_info(int fd) const {
 }
 
 size_t ClientManager::get_client_count() const {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::scoped_lock lock(mutex_);
     return clients_.size();
 }
 

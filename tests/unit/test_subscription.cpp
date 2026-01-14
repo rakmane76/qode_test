@@ -34,9 +34,9 @@ protected:
         // Create symbol file
         std::string symbol_file = config_dir_ + "/symbols.csv";
         std::ofstream file(symbol_file);
-        file << "name,initial_price,volatility,drift\n";
+        file << "symbol_id,symbol,price,volatility,drift\n";
         for (size_t i = 0; i < num_symbols; ++i) {
-            file << "SYM" << i << "," << (1000.0 + i * 10.0) << ",0.02,0.01\n";
+            file << i << ",SYM" << i << "," << (1000.0 + i * 10.0) << ",0.02,0.01\n";
         }
         file.close();
         

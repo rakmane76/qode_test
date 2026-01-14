@@ -62,9 +62,9 @@ protected:
     // Helper to create a valid symbol CSV file
     void create_valid_symbol_file(const std::string& filename, int num_symbols) {
         std::ofstream file(filename);
-        file << "name,initial_price,volatility,drift\n";
+        file << "symbol_id,symbol,price,volatility,drift\n";
         for (int i = 0; i < num_symbols; ++i) {
-            file << "SYM" << i << "," 
+            file << i << ",SYM" << i << "," 
                  << (1000.0 + i * 10.0) << ","
                  << (0.02 + i * 0.001) << ","
                  << (0.01 - i * 0.001) << "\n";
@@ -75,20 +75,20 @@ protected:
     // Helper to create CSV with malformed data
     void create_malformed_symbol_file(const std::string& filename) {
         std::ofstream file(filename);
-        file << "name,initial_price,volatility,drift\n";
-        file << "SYM0,1000.0,0.02,0.01\n";
-        file << "SYM1,invalid_price,0.02,0.01\n";  // Invalid price
-        file << "SYM2,1020.0,0.022\n";  // Missing drift field
-        file << "SYM3,1030.0,0.023,0.009\n";  // Valid
-        file << "SYM4,,0.024,0.008\n";  // Missing price
-        file << "SYM5,1050.0,0.025,0.007\n";  // Valid
+        file << "symbol_id,symbol,price,volatility,drift\n";
+        file << "0,SYM0,1000.0,0.02,0.01\n";
+        file << "1,SYM1,invalid_price,0.02,0.01\n";  // Invalid price
+        file << "2,SYM2,1020.0,0.022\n";  // Missing drift field
+        file << "3,SYM3,1030.0,0.023,0.009\n";  // Valid
+        file << "4,SYM4,,0.024,0.008\n";  // Missing price
+        file << "5,SYM5,1050.0,0.025,0.007\n";  // Valid
         file.close();
     }
 
     // Helper to create an empty symbol file (header only)
     void create_empty_symbol_file(const std::string& filename) {
         std::ofstream file(filename);
-        file << "name,initial_price,volatility,drift\n";
+        file << "symbol_id,symbol,price,volatility,drift\n";
         file.close();
     }
 

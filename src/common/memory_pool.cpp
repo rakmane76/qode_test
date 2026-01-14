@@ -35,7 +35,7 @@ MemoryPool::~MemoryPool() {
 }
 
 void* MemoryPool::allocate() {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::scoped_lock lock(mutex_);
     
     if (free_list_.empty()) {
         return nullptr;
@@ -50,12 +50,12 @@ void* MemoryPool::allocate() {
 void MemoryPool::deallocate(void* ptr) {
     if (!ptr) return;
     
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::scoped_lock lock(mutex_);
     free_list_.push_back(ptr);
 }
 
 size_t MemoryPool::get_available_blocks() const {
-    std::lock_guard<std::mutex> lock(mutex_);
+    std::scoped_lock lock(mutex_);
     return free_list_.size();
 }
 

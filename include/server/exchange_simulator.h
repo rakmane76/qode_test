@@ -33,8 +33,8 @@ public:
     // Initialize with custom config file (for testing)
     ExchangeSimulator(uint16_t port, size_t num_symbols, const std::string& config_file);
     // Test-only accessors for verifying symbol state
-    size_t get_num_loaded_symbols() const { return symbols_.size(); }
-    const SymbolState &get_symbol(size_t index) const { return symbols_.at(index); }
+    size_t get_num_loaded_symbols() const { return loaded_symbols_count_; }
+    const SymbolState &get_symbol(size_t index) const { return loaded_symbols_.at(index); }
     // Test-only accessor for client connection management
     size_t get_num_connected_clients() const { return client_fds_.size(); }
     const std::vector<int>& get_client_fds() const { return client_fds_; }
@@ -100,7 +100,9 @@ private:
     std::atomic<uint32_t> tick_rate_;
     std::atomic<bool> fault_injection_enabled_;
     
-    std::vector<SymbolState> symbols_;
+    std::vector<SymbolState> symbols_;  // Sparse array indexed by symbol_id
+    std::vector<SymbolState> loaded_symbols_;  // Compact array for testing
+    size_t loaded_symbols_count_;
     std::vector<int> client_fds_;
     
     // Per-client subscription tracking: client_fd -> set of symbol_ids

@@ -29,7 +29,8 @@ ExchangeSimulator::ExchangeSimulator(uint16_t port, size_t num_symbols)
       epoll_fd_(-1),
       running_(false),
       tick_rate_(100000),
-      fault_injection_enabled_(false) {
+      fault_injection_enabled_(false),
+      loaded_symbols_count_(0) {
     
     load_config(DEFAULT_CONFIG_FILE);
     initialize_symbols();
@@ -43,7 +44,8 @@ ExchangeSimulator::ExchangeSimulator(uint16_t port, size_t num_symbols, const st
       epoll_fd_(-1),
       running_(false),
       tick_rate_(100000),
-      fault_injection_enabled_(false) {
+      fault_injection_enabled_(false),
+      loaded_symbols_count_(0) {
     
     load_config(config_file);
     initialize_symbols();
@@ -94,6 +96,7 @@ void ExchangeSimulator::initialize_symbols() {
     
     symbols_.clear();
     symbols_.resize(num_symbols_); // Pre-allocate to ensure correct indexing
+    loaded_symbols_.clear();
     std::string line;
     size_t loaded_count = 0;
     
@@ -128,6 +131,7 @@ void ExchangeSimulator::initialize_symbols() {
             sym.ticks_since_price_update = 0;
             
             symbols_[symbol_id] = sym;
+            loaded_symbols_.push_back(sym);  // Also store in compact array for testing
             loaded_count++;
         }
     }
@@ -136,6 +140,7 @@ void ExchangeSimulator::initialize_symbols() {
         throw std::runtime_error("No symbols loaded from file: " + symbols_file_);
     }
     
+    loaded_symbols_count_ = loaded_count;
     std::cout << "Loaded " << loaded_count << " symbols from " << symbols_file_ << std::endl;
 }
 
@@ -254,7 +259,7 @@ void ExchangeSimulator::handle_client_disconnect(int client_fd) {
     
     // Remove client subscriptions
     {
-        std::lock_guard<std::mutex> lock(subscriptions_mutex_);
+        std::scoped_lock lock(subscriptions_mutex_);
         client_subscriptions_.erase(client_fd);
     }
     
@@ -267,9 +272,13 @@ void ExchangeSimulator::generate_tick(uint16_t symbol_id) {
     TickGenerator gen;
     auto& symbol = symbols_[symbol_id];
     
-    // Update underlying price only every 100 ticks
-    // This keeps price evolution realistic while maintaining high message throughput
+    // Update underlying price only every 100 ticks in production
+    // In testing mode, update every tick for predictable test behavior
+#ifdef TESTING
+    constexpr uint32_t PRICE_UPDATE_INTERVAL = 1;
+#else
     constexpr uint32_t PRICE_UPDATE_INTERVAL = 100;
+#endif
     symbol.ticks_since_price_update++;
     if (symbol.ticks_since_price_update >= PRICE_UPDATE_INTERVAL) {
         // Calculate dt (time in seconds between price updates)
@@ -329,6 +338,19 @@ void ExchangeSimulator::generate_tick(uint16_t symbol_id) {
         
         broadcast_message(&msg, sizeof(msg), symbol_id);
     }
+    
+#ifdef TESTING
+    // Update loaded_symbols_ array for test access
+    // This must be done AFTER seq_num is incremented above
+    for (auto& loaded_sym : loaded_symbols_) {
+        if (loaded_sym.symbol_id == symbol_id) {
+            loaded_sym.current_price = symbol.current_price;
+            loaded_sym.seq_num = symbol.seq_num;
+            loaded_sym.ticks_since_price_update = symbol.ticks_since_price_update;
+            break;
+        }
+    }
+#endif
 }
 
 void ExchangeSimulator::broadcast_message(const void* data, size_t len, uint16_t symbol_id) {
@@ -341,7 +363,7 @@ void ExchangeSimulator::broadcast_message(const void* data, size_t len, uint16_t
     for (int fd : clients) {
         // Subscription-only mode: clients must subscribe to receive messages
         if (symbol_id != 0xFFFF) {
-            std::lock_guard<std::mutex> lock(subscriptions_mutex_);
+            std::scoped_lock lock(subscriptions_mutex_);
             auto it = client_subscriptions_.find(fd);
             
             // Client has no subscriptions or empty subscription list - skip
@@ -425,6 +447,7 @@ void ExchangeSimulator::tick_generation_loop() {
 }
 
 void ExchangeSimulator::set_tick_rate(uint32_t ticks_per_second) {
+    std::scoped_lock lock(tick_rate_mutex_);
     uint32_t old_rate = tick_rate_.exchange(ticks_per_second);
     
     // If changing from 0 to non-zero, wake up the tick thread
@@ -523,14 +546,14 @@ void ExchangeSimulator::handle_subscription_message(int client_fd, const uint8_t
     
     // Update client subscriptions
     {
-        std::lock_guard<std::mutex> lock(subscriptions_mutex_);
+        std::scoped_lock lock(subscriptions_mutex_);
         client_subscriptions_[client_fd] = std::move(symbol_ids);
     }
 }
 
 #ifdef TESTING
 bool ExchangeSimulator::is_client_subscribed(int client_fd, uint16_t symbol_id) const {
-    std::lock_guard<std::mutex> lock(subscriptions_mutex_);
+    std::scoped_lock lock(subscriptions_mutex_);
     auto it = client_subscriptions_.find(client_fd);
     if (it == client_subscriptions_.end()) {
         return false;
@@ -539,7 +562,7 @@ bool ExchangeSimulator::is_client_subscribed(int client_fd, uint16_t symbol_id) 
 }
 
 size_t ExchangeSimulator::get_client_subscription_count(int client_fd) const {
-    std::lock_guard<std::mutex> lock(subscriptions_mutex_);
+    std::scoped_lock lock(subscriptions_mutex_);
     auto it = client_subscriptions_.find(client_fd);
     if (it == client_subscriptions_.end()) {
         return 0;
